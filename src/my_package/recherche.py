@@ -75,8 +75,9 @@ def construire_texte(ligne: pd.Series) -> str:
     if ligne["theme_secondaire"]:
         theme += f", {ligne['theme_secondaire']}"
     return f"{theme}. {ligne['mesure']}"
-#    return ligne["mesure"]
-#    return f"Candidat : {ligne['candidat']}. Thème : {theme}. Mesure : {ligne['mesure']}"
+    # Versions testées :
+    # return ligne["mesure"]
+    # return f"Candidat : {ligne['candidat']}. Thème : {theme}. Mesure : {ligne['mesure']}"
 
 
 # ---------------------------------------------------------------------------
@@ -145,11 +146,13 @@ def rechercher(question: str, candidat: str | None = None, n: int = 5) -> list[d
     """Renvoie les n mesures les plus proches de la question.
 
     Format de sortie (convenu avec Élise) : liste de dicts
-    {"texte", "candidat", "theme", "source", "date", "score"}
+    {"mesure", "candidat", "theme", "theme_secondaire", "type_source",
+     "source", "date", "score"}
     """
     collection = get_collection()
     if collection.count() == 0:
         indexer(charger_mesures())
+        collection = get_collection()  # la collection a été recréée par indexer()
 
     filtre = None
     if candidat:
@@ -169,9 +172,11 @@ def rechercher(question: str, candidat: str | None = None, n: int = 5) -> list[d
     ):
         mesures.append(
             {
-                "texte": texte,
+                "mesure": texte,
                 "candidat": meta["candidat"],
                 "theme": meta["theme"],
+                "theme_secondaire": meta["theme_secondaire"],
+                "type_source": meta["type_source"],
                 "source": meta["source"],
                 "date": meta["date"],
                 "score": round(1 - distance, 3),  # 1 = très proche
@@ -199,4 +204,4 @@ if __name__ == "__main__":
         filtre = f" [filtre : {candidat}]" if candidat else ""
         print(f"\n=== {question}{filtre}")
         for m in rechercher(question, candidat=candidat, n=3):
-            print(f"  ({m['score']}) {m['candidat']} | {m['theme']} | {m['texte'][:110]}")
+            print(f"  ({m['score']}) {m['candidat']} | {m['theme']} | {m['mesure'][:110]}")

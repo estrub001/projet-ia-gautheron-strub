@@ -33,11 +33,14 @@ def formater_mesures(mesures: list[dict]) -> str:
     """Transforme la liste de mesures en texte lisible par le modèle."""
     lignes = []
     for i, m in enumerate(mesures, start=1):
+        theme = m["theme"]
+        if m["theme_secondaire"]:
+            theme += f" / {m['theme_secondaire']}"
         lignes.append(
             f"{i}. Candidat : {m['candidat']}\n"
-            f"   Thème : {m['theme']}\n"
-            f"   Mesure : {m['texte']}\n"
-            f"   Source : {m['source']} ({m['date']})"
+            f"   Thème : {theme}\n"
+            f"   Mesure : {m['mesure']}\n"
+            f"   Source : {m['source']} ({m['type_source']}, {m['date']})"
         )
     return "\n\n".join(lignes)
 
@@ -78,7 +81,7 @@ def reponse_factice(mesures: list[dict]) -> str:
     """Fausse réponse au même format que celle du modèle, pour tester l'interface."""
     lignes = ["*(Réponse factice : le modèle n'est pas encore branché.)*", ""]
     for m in mesures:
-        lignes.append(f"- **{m['candidat']}** : {m['texte']} [{m['source']}]")
+        lignes.append(f"- **{m['candidat']}** : {m['mesure']} [{m['source']}]")
     return "\n".join(lignes)
 
 
