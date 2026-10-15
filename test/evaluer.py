@@ -2,12 +2,21 @@
 
 Lancement depuis la racine du projet :
     uv run python test/evaluer.py
-    uv run python test/evaluer.py -v   (détail de chaque question)
+    uv run python test/evaluer.py -v   (les 5 résultats de chaque question)
 
-Pour chaque question avec une réponse attendue, on regarde si une mesure
-contenant un des fragments attendus sort dans le top N, et à quel rang.
-Pour les questions hors sujet, on affiche le meilleur score obtenu
-(utile pour choisir un éventuel seuil).
+Format de questions.csv :
+    question, candidat_filtre, fragments_attendus, candidats_attendus
+    - fragments_attendus : un fragment par bonne mesure, séparés par "|"
+    - candidats_attendus : les candidats qui ont une position, séparés par "|"
+    - les deux vides = question hors sujet
+
+Mesures calculées :
+    - Top N       : au moins une bonne mesure dans les N premiers résultats
+    - 1re position et MRR : rang de la première bonne mesure
+    - Rappel@N    : part des bonnes mesures retrouvées (sur max N attendues)
+    - Couverture  : part des candidats concernés présents dans le top N
+                    (questions où plusieurs candidats ont une position)
+    - Hors sujet  : meilleur score obtenu, pour choisir un seuil
 """
 
 import sys
@@ -22,71 +31,114 @@ N = 5
 VERBEUX = "-v" in sys.argv
 
 
-def trouver_rang(resultats: list[dict], fragments: list[str]) -> int | None:
-    """Rang (1 = premier) de la première mesure contenant un fragment attendu."""
-    for rang, mesure in enumerate(resultats, start=1):
-        texte = mesure["mesure"].lower()
-        if any(f.lower() in texte for f in fragments):
-            return rang
-    return None
+def decouper(valeur: str) -> list[str]:
+    """'a|b|c' -> ['a', 'b', 'c'] (sans les morceaux vides)."""
+    return [x.strip() for x in valeur.split("|") if x.strip()]
+
+
+def fragments_trouves(mesure: dict, fragments: list[str]) -> list[str]:
+    """Fragments attendus présents dans le texte de cette mesure."""
+    texte = mesure["mesure"].lower()
+    return [f for f in fragments if f.lower() in texte]
+
+
+def afficher_resultats(resultats: list[dict], fragments: list[str]) -> None:
+    """Affiche les résultats ; les bonnes mesures sont marquées d'une flèche."""
+    for rang, m in enumerate(resultats, start=1):
+        fleche = "->" if fragments_trouves(m, fragments) else "  "
+        print(f"  {fleche} {rang}. ({m['score']}) {m['candidat']} | {m['mesure'][:90]}")
 
 
 def main() -> None:
-    df = pd.read_csv(CHEMIN_QUESTIONS, dtype=str).fillna("")
+    df = pd.read_csv(CHEMIN_QUESTIONS, dtype=str, encoding="utf-8-sig").fillna("")
 
-    trouves, rangs, scores_bons, scores_hors_sujet = 0, [], [], []
-    rates = []
-    nb_attendues = 0
+    nb_attendues, trouves = 0, 0
+    rangs, scores_bons, rappels, couvertures = [], [], [], []
+    hors_sujet, rates = [], []
 
     for _, q in df.iterrows():
         question = q["question"].strip()
         if not question:
             continue
         candidat = q["candidat_filtre"].strip() or None
-        fragments = [f.strip() for f in q["fragments_attendus"].split("|") if f.strip()]
+        fragments = decouper(q["fragments_attendus"])
+        candidats = decouper(q["candidats_attendus"])
 
         resultats = rechercher(question, candidat=candidat, n=N)
 
-        # Question hors sujet : on note juste le meilleur score
+        # --- Question hors sujet : on note le meilleur score
         if not fragments:
             meilleur = resultats[0]["score"] if resultats else 0
-            scores_hors_sujet.append(meilleur)
+            hors_sujet.append((question, meilleur))
             if VERBEUX:
-                print(f"[HORS SUJET] {question} -> meilleur score {meilleur}")
+                print(f"\n[HORS SUJET] {question} -> meilleur score {meilleur}")
+                afficher_resultats(resultats, [])
             continue
 
         nb_attendues += 1
-        rang = trouver_rang(resultats, fragments)
+
+        # Rang de la première bonne mesure + fragments retrouvés
+        rang, retrouves = None, set()
+        for i, m in enumerate(resultats, start=1):
+            f = fragments_trouves(m, fragments)
+            if f:
+                retrouves.update(f)
+                if rang is None:
+                    rang = i
+                    scores_bons.append(m["score"])
+
         if rang:
             trouves += 1
             rangs.append(rang)
-            scores_bons.append(resultats[rang - 1]["score"])
-            statut = f"OK (rang {rang})"
         else:
-            rates.append((question, resultats))
-            statut = "RATÉ"
+            rates.append((question, resultats, fragments))
+
+        # Rappel : sur au plus N mesures attendues (le top N ne peut pas en contenir plus)
+        rappel = len(retrouves) / min(len(fragments), N)
+        rappels.append(rappel)
+
+        # Couverture des candidats : seulement quand plusieurs candidats ont une position
+        couverture = None
+        if len(candidats) > 1 and not candidat:
+            presents = {m["candidat"] for m in resultats if fragments_trouves(m, fragments)}
+            couverture = len(presents & set(candidats)) / len(candidats)
+            couvertures.append(couverture)
 
         if VERBEUX:
-            print(f"[{statut}] {question}")
+            statut = f"OK rang {rang}" if rang else "RATÉ"
+            filtre = f" [filtre : {candidat}]" if candidat else ""
+            details = f"rappel {len(retrouves)}/{min(len(fragments), N)}"
+            if couverture is not None:
+                details += f", candidats {couverture:.0%}"
+            print(f"\n[{statut} | {details}] {question}{filtre}")
+            afficher_resultats(resultats, fragments)
 
-    # Résumé
+    # --- Résumé
     print("\n" + "=" * 60)
-    print(f"Bonne mesure dans le top {N} : {trouves}/{nb_attendues}")
-    if rangs:
-        print(f"Bonne mesure en 1re position : {rangs.count(1)}/{nb_attendues}")
-        mrr = sum(1 / r for r in rangs) / nb_attendues
-        print(f"MRR (1 = toujours premier) : {mrr:.2f}")
+    print(f"Au moins une bonne mesure dans le top {N} : {trouves}/{nb_attendues}")
+    print(f"Bonne mesure en 1re position : {rangs.count(1)}/{nb_attendues}")
+    print(f"MRR (1 = toujours premier) : {sum(1 / r for r in rangs) / nb_attendues:.2f}")
+    print(f"Rappel@{N} moyen (part des bonnes mesures retrouvées) : {sum(rappels) / len(rappels):.0%}")
+    if couvertures:
+        print(
+            f"Couverture candidats ({len(couvertures)} questions à plusieurs candidats) : "
+            f"{sum(couvertures) / len(couvertures):.0%}"
+        )
     if scores_bons:
-        print(f"Score des bonnes mesures : min {min(scores_bons)}, moyen {sum(scores_bons) / len(scores_bons):.3f}")
-    if scores_hors_sujet:
-        print(f"Meilleur score hors sujet : max {max(scores_hors_sujet)}")
+        print(
+            f"Score de la 1re bonne mesure : min {min(scores_bons)}, "
+            f"moyen {sum(scores_bons) / len(scores_bons):.3f}"
+        )
+    if hors_sujet:
+        print("\nHors sujet (meilleur score, du plus haut au plus bas) :")
+        for question, score in sorted(hors_sujet, key=lambda x: -x[1]):
+            print(f"  ({score}) {question}")
 
-    if rates:
-        print("\nQuestions ratées (top 3 obtenu) :")
-        for question, resultats in rates:
+    if rates and not VERBEUX:
+        print("\nQuestions ratées (relancer avec -v pour tout voir) :")
+        for question, resultats, fragments in rates:
             print(f"\n  {question}")
-            for m in resultats[:3]:
-                print(f"    ({m['score']}) {m['candidat']} | {m['mesure'][:90]}")
+            afficher_resultats(resultats[:3], fragments)
 
 
 if __name__ == "__main__":
