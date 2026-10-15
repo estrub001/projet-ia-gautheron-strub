@@ -25,7 +25,7 @@ VERBEUX = "-v" in sys.argv
 def trouver_rang(resultats: list[dict], fragments: list[str]) -> int | None:
     """Rang (1 = premier) de la première mesure contenant un fragment attendu."""
     for rang, mesure in enumerate(resultats, start=1):
-        texte = mesure["texte"].lower()
+        texte = mesure["mesure"].lower()
         if any(f.lower() in texte for f in fragments):
             return rang
     return None
@@ -86,7 +86,7 @@ def main() -> None:
         for question, resultats in rates:
             print(f"\n  {question}")
             for m in resultats[:3]:
-                print(f"    ({m['score']}) {m['candidat']} | {m['texte'][:90]}")
+                print(f"    ({m['score']}) {m['candidat']} | {m['mesure'][:90]}")
 
 
 if __name__ == "__main__":
