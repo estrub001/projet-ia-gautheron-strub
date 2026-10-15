@@ -1,9 +1,17 @@
-"""Recherche des mesures les plus pertinentes pour une question."""
+"""Recherche sémantique dans les mesures des programmes des candidats.
 
-K_MAX = 9               # nombre maximum de mesures renvoyées
-MAX_PAR_CANDIDAT = 3    # nombre maximum de mesures par candidat
+Étapes 1 et 2 : chargement, nettoyage du CSV et assemblage du texte à vectoriser.
+"""
 
-# Correspondance entre les colonnes du CSV et les clés utilisées dans le code
+from pathlib import Path
+
+import pandas as pd
+
+# src/my_package/recherche.py -> racine du projet = 2 dossiers au-dessus de my_package
+RACINE = Path(__file__).resolve().parents[2]
+CHEMIN_CSV = RACINE / "data" / "mesures_programmes_2022.csv"
+
+# Noms de colonnes du CSV -> noms simples, sans accents ni espaces
 COLONNES = {
     "Thème": "theme",
     "Thème secondaire": "theme_secondaire",
@@ -14,59 +22,51 @@ COLONNES = {
     "Date": "date",
 }
 
-
-def rechercher(question: str, candidat: str | None = None) -> list[dict]:
-    """
-    Renvoie au maximum 9 mesures, dont 3 au maximum par candidat,
-    la plus pertinente en premier.
-
-    question : la question du citoyen, telle quelle.
-    candidat : filtre optionnel, orthographe identique à la colonne 'Candidat' du CSV
-               (ex. "Marine Le Pen"). Si un candidat est choisi, 3 mesures au maximum.
-
-    Renvoie [] si rien ne correspond.
-    Chaque élément est un dictionnaire :
-        {"theme", "theme_secondaire", "candidat", "mesure",
-         "type_source", "source", "date", "score"}
-    theme_secondaire vaut "" s'il n'y en a pas.
-    score : entre 0 et 1, plus c'est grand plus c'est pertinent.
-    """
-    # VERSION TEMPORAIRE : fausses données, remplacées plus tard par la recherche ChromaDB
-    resultats = [
-        {"theme": "Energie", "theme_secondaire": "Ecologie et climat",
-         "candidat": "Marine Le Pen",
-         "mesure": "Prononcer un moratoire sur l'éolien et le solaire...",
-         "type_source": "Programme officiel",
-         "source": "projet-lecologie.pdf ; projet-le-patrimoine.pdf",
-         "date": "2022", "score": 0.91},
-        {"theme": "Energie", "theme_secondaire": "",
-         "candidat": "Marine Le Pen",
-         "mesure": "Développer l'hydroélectricité et la géothermie...",
-         "type_source": "Programme officiel", "source": "projet-lecologie.pdf",
-         "date": "2022", "score": 0.85},
-        {"theme": "Energie", "theme_secondaire": "",
-         "candidat": "Candidat fictif",
-         "mesure": "Mesure fictive sur l'énergie",
-         "type_source": "Site web", "source": "https://exemple.fr",
-         "date": "2022", "score": 0.80},
-    ]
-    if candidat:
-        resultats = [r for r in resultats if r["candidat"] == candidat]
-    return limiter_par_candidat(resultats)
+# Variantes d'orthographe -> nom unique.
+# À compléter en regardant le value_counts() des candidats.
+NOMS_CANDIDATS = {
+    "Le Pen": "Marine Le Pen",
+    "Mélenchon": "Jean-Luc Mélenchon",
+}
 
 
-def limiter_par_candidat(resultats: list[dict]) -> list[dict]:
-    """
-    Garde au maximum MAX_PAR_CANDIDAT mesures par candidat et K_MAX au total.
-    Les résultats doivent arriver déjà triés du plus pertinent au moins pertinent.
-    """
-    compteur = {}
-    gardes = []
-    for r in resultats:
-        nb = compteur.get(r["candidat"], 0)
-        if nb < MAX_PAR_CANDIDAT:
-            gardes.append(r)
-            compteur[r["candidat"]] = nb + 1
-        if len(gardes) == K_MAX:
-            break
-    return gardes
+def charger_mesures(chemin: Path = CHEMIN_CSV) -> pd.DataFrame:
+    """Charge le CSV et renvoie un DataFrame propre."""
+    df = pd.read_csv(chemin, dtype=str, encoding="utf-8")
+
+    # Colonnes bien nommées
+    df = df.rename(columns=lambda c: c.strip()).rename(columns=COLONNES)
+
+    # Cases vides -> "" et espaces en trop retirés partout
+    df = df.fillna("")
+    for col in df.columns:
+        df[col] = df[col].str.strip()
+
+    # Noms de candidats uniformes (espaces multiples, variantes)
+    df["candidat"] = (
+        df["candidat"].str.replace(r"\s+", " ", regex=True).replace(NOMS_CANDIDATS)
+    )
+
+    # Pas de lignes vides ou incomplètes, pas de doublons
+    df = df[(df["mesure"] != "") & (df["candidat"] != "")]
+    df = df.drop_duplicates(subset=["candidat", "mesure"]).reset_index(drop=True)
+
+    return df
+
+
+def construire_texte(ligne: pd.Series) -> str:
+    """Assemble le texte à vectoriser (le texte d'origine n'est pas modifié)."""
+    theme = ligne["theme"]
+    if ligne["theme_secondaire"]:
+        theme += f", {ligne['theme_secondaire']}"
+    return f"Candidat : {ligne['candidat']}. Thème : {theme}. Mesure : {ligne['mesure']}"
+
+
+if __name__ == "__main__":
+    df = charger_mesures()
+    df["texte_embed"] = df.apply(construire_texte, axis=1)
+
+    print("Taille :", df.shape)
+    print("\nCandidats :\n", df["candidat"].value_counts())
+    print("\nThèmes :\n", df["theme"].value_counts())
+    print("\nExemple de texte :\n", df["texte_embed"].iloc[0])
