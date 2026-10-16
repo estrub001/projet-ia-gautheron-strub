@@ -17,6 +17,8 @@ import chromadb
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
+from my_package.glossaire import enrichir
+
 # src/my_package/recherche.py -> racine du projet = 2 dossiers au-dessus de my_package
 RACINE = Path(__file__).resolve().parents[2]
 CHEMIN_CSV = RACINE / "data" / "mesures_programmes_2022.csv"
@@ -83,8 +85,9 @@ def construire_texte(ligne: pd.Series) -> str:
     theme = ligne["theme"]
     if ligne["theme_secondaire"]:
         theme += f", {ligne['theme_secondaire']}"
-    return ligne["mesure"]
+    return enrichir(ligne["mesure"])  # mesure + définition des sigles qu'elle contient
     # Versions testées :
+    # return ligne["mesure"]
     # return f"{theme}. {ligne['mesure']}"
     # return f"Candidat : {ligne['candidat']}. Thème : {theme}. Mesure : {ligne['mesure']}"
 
@@ -187,14 +190,14 @@ def rechercher(
     question: str,
     candidat: str | None = None,
     n: int = 9,
-    equilibrer: bool = False,
+    equilibrer: bool = True,
     score_min: float | None = SCORE_MIN,
 ) -> list[dict]:
     """Renvoie les mesures les plus proches de la question, de la plus proche à la moins proche.
 
     - candidat donné : les n meilleures mesures de ce candidat.
     - sans candidat et equilibrer=True : les meilleures mesures de CHAQUE candidat
-      (n réparti entre eux, arrondi au-dessus : n=5 et 3 candidats -> 2 chacun),
+      (n réparti entre eux, arrondi au-dessus : n=9 et 3 candidats -> 3 chacun),
       pour qu'aucun candidat ne disparaisse parce que son programme est plus court.
     - sans candidat et equilibrer=False : les n meilleures toutes confondues.
     - score_min : les mesures en dessous sont retirées (None = pas de seuil).
@@ -210,7 +213,7 @@ def rechercher(
         collection = get_collection()  # la collection a été recréée par indexer()
 
     vecteur = embedder([question], prefixe=PREFIXE_QUESTION)[0]
-
+    
     if candidat:
         nom = NOMS_CANDIDATS.get(candidat, candidat)
         mesures = _interroger(collection, vecteur, n, {"candidat": nom})
