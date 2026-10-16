@@ -1,8 +1,12 @@
 """Évalue rechercher() sur les questions de test/questions.csv.
 
 Lancement depuis la racine du projet :
-    uv run python test/evaluer.py
-    uv run python test/evaluer.py -v   (les 5 résultats de chaque question)
+    uv run python test/evaluer.py                    (réglages par défaut de rechercher)
+    uv run python test/evaluer.py -v                 (tous les résultats de chaque question)
+    uv run python test/evaluer.py --sans-equilibre   (les N meilleures toutes confondues)
+    uv run python test/evaluer.py --sans-seuil       (pas de score minimum)
+    uv run python test/evaluer.py --n 6              (nombre de mesures demandées)
+Les options se combinent, par exemple : --sans-equilibre --sans-seuil = l'ancienne version.
 
 Format de questions.csv :
     question, candidat_filtre, fragments_attendus, candidats_attendus
@@ -11,12 +15,13 @@ Format de questions.csv :
     - les deux vides = question hors sujet
 
 Mesures calculées :
-    - Top N       : au moins une bonne mesure dans les N premiers résultats
+    - Top         : au moins une bonne mesure dans les résultats
     - 1re position et MRR : rang de la première bonne mesure
-    - Rappel@N    : part des bonnes mesures retrouvées (sur max N attendues)
-    - Couverture  : part des candidats concernés présents dans le top N
+    - Rappel      : part des bonnes mesures retrouvées (sur max N attendues)
+    - Couverture  : part des candidats concernés présents parmi les bonnes mesures
                     (questions où plusieurs candidats ont une position)
-    - Hors sujet  : meilleur score obtenu, pour choisir un seuil
+    - Hors sujet  : questions rejetées (aucun résultat au-dessus du seuil)
+                    et meilleur score brut, pour régler le seuil
 """
 
 import sys
@@ -24,11 +29,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from my_package.recherche import rechercher
+from my_package.recherche import SCORE_MIN, rechercher
 
 CHEMIN_QUESTIONS = Path(__file__).resolve().parent / "questions.csv"
-N = 5
 VERBEUX = "-v" in sys.argv
+EQUILIBRER = "--sans-equilibre" not in sys.argv
+SEUIL = None if "--sans-seuil" in sys.argv else SCORE_MIN
+N = int(sys.argv[sys.argv.index("--n") + 1]) if "--n" in sys.argv else 9
 
 
 def decouper(valeur: str) -> list[str]:
@@ -44,6 +51,8 @@ def fragments_trouves(mesure: dict, fragments: list[str]) -> list[str]:
 
 def afficher_resultats(resultats: list[dict], fragments: list[str]) -> None:
     """Affiche les résultats ; les bonnes mesures sont marquées d'une flèche."""
+    if not resultats:
+        print("     (aucun résultat au-dessus du seuil)")
     for rang, m in enumerate(resultats, start=1):
         fleche = "->" if fragments_trouves(m, fragments) else "  "
         print(f"  {fleche} {rang}. ({m['score']}) {m['candidat']} | {m['mesure'][:90]}")
@@ -52,8 +61,13 @@ def afficher_resultats(resultats: list[dict], fragments: list[str]) -> None:
 def main() -> None:
     df = pd.read_csv(CHEMIN_QUESTIONS, dtype=str, encoding="utf-8-sig").fillna("")
 
-    nb_attendues, trouves = 0, 0
-    rangs, scores_bons, rappels, couvertures = [], [], [], []
+    print(
+        f"Réglages : n={N}, équilibre par candidat={'oui' if EQUILIBRER else 'non'}, "
+        f"seuil={SEUIL if SEUIL is not None else 'aucun'}"
+    )
+
+    nb_attendues, trouves, rejets_a_tort = 0, 0, 0
+    rangs, scores_bons, rappels, couvertures, nb_resultats = [], [], [], [], []
     hors_sujet, rates = [], []
 
     for _, q in df.iterrows():
@@ -64,18 +78,26 @@ def main() -> None:
         fragments = decouper(q["fragments_attendus"])
         candidats = decouper(q["candidats_attendus"])
 
-        resultats = rechercher(question, candidat=candidat, n=N)
+        resultats = rechercher(
+            question, candidat=candidat, n=N, equilibrer=EQUILIBRER, score_min=SEUIL
+        )
 
-        # --- Question hors sujet : on note le meilleur score
+        # --- Question hors sujet : rejetée ou non, et meilleur score brut (sans seuil)
         if not fragments:
-            meilleur = resultats[0]["score"] if resultats else 0
-            hors_sujet.append((question, meilleur))
+            bruts = rechercher(question, candidat=candidat, n=N, equilibrer=EQUILIBRER, score_min=None)
+            meilleur = bruts[0]["score"] if bruts else 0
+            rejetee = not resultats
+            hors_sujet.append((question, meilleur, rejetee))
             if VERBEUX:
-                print(f"\n[HORS SUJET] {question} -> meilleur score {meilleur}")
+                etat = "REJETÉE" if rejetee else f"{len(resultats)} résultat(s) renvoyé(s)"
+                print(f"\n[HORS SUJET | {etat}] {question} -> meilleur score brut {meilleur}")
                 afficher_resultats(resultats, [])
             continue
 
         nb_attendues += 1
+        nb_resultats.append(len(resultats))
+        if not resultats:
+            rejets_a_tort += 1
 
         # Rang de la première bonne mesure + fragments retrouvés
         rang, retrouves = None, set()
@@ -93,7 +115,7 @@ def main() -> None:
         else:
             rates.append((question, resultats, fragments))
 
-        # Rappel : sur au plus N mesures attendues (le top N ne peut pas en contenir plus)
+        # Rappel : sur au plus N mesures attendues
         rappel = len(retrouves) / min(len(fragments), N)
         rappels.append(rappel)
 
@@ -115,24 +137,28 @@ def main() -> None:
 
     # --- Résumé
     print("\n" + "=" * 60)
-    print(f"Au moins une bonne mesure dans le top {N} : {trouves}/{nb_attendues}")
+    print(f"Au moins une bonne mesure dans les résultats : {trouves}/{nb_attendues}")
     print(f"Bonne mesure en 1re position : {rangs.count(1)}/{nb_attendues}")
     print(f"MRR (1 = toujours premier) : {sum(1 / r for r in rangs) / nb_attendues:.2f}")
-    print(f"Rappel@{N} moyen (part des bonnes mesures retrouvées) : {sum(rappels) / len(rappels):.0%}")
+    print(f"Rappel moyen (part des bonnes mesures retrouvées) : {sum(rappels) / len(rappels):.0%}")
     if couvertures:
         print(
             f"Couverture candidats ({len(couvertures)} questions à plusieurs candidats) : "
             f"{sum(couvertures) / len(couvertures):.0%}"
         )
+    print(f"Nombre moyen de mesures renvoyées : {sum(nb_resultats) / len(nb_resultats):.1f}")
+    print(f"Questions normales rejetées à tort (aucun résultat) : {rejets_a_tort}/{nb_attendues}")
     if scores_bons:
         print(
             f"Score de la 1re bonne mesure : min {min(scores_bons)}, "
             f"moyen {sum(scores_bons) / len(scores_bons):.3f}"
         )
     if hors_sujet:
-        print("\nHors sujet (meilleur score, du plus haut au plus bas) :")
-        for question, score in sorted(hors_sujet, key=lambda x: -x[1]):
-            print(f"  ({score}) {question}")
+        nb_rejetees = sum(r for _, _, r in hors_sujet)
+        print(f"\nHors sujet rejetés : {nb_rejetees}/{len(hors_sujet)}")
+        for question, score, rejetee in sorted(hors_sujet, key=lambda x: -x[1]):
+            etat = "rejetée" if rejetee else "PASSE  "
+            print(f"  [{etat}] ({score}) {question}")
 
     if rates and not VERBEUX:
         print("\nQuestions ratées (relancer avec -v pour tout voir) :")
