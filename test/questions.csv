@@ -1,21 +1,26 @@
-question,candidat_filtre,fragments_attendus,candidat_attendu
-Pourquoi certains veulent arrêter les éoliennes ?,,Prononcer un moratoire,Marine Le Pen
-Qui veut construire des éoliennes en mer ?,,50 parcs éoliens en mer,Emmanuel Macron
-Est-ce qu'un candidat veut qu'on se passe du nucléaire ?,,Sortir du nucléaire,Jean-Luc Mélenchon
+question,candidat_filtre,fragments_attendus,candidats_attendus
+Pourquoi certains veulent arrêter les éoliennes ?,,Prononcer un moratoire|éoliens et solaires au sol,Marine Le Pen
+Qui veut construire des éoliennes en mer ?,,50 parcs éoliens en mer|(EMR)|branche énergies marines|projets énergétiques innovants,Emmanuel Macron|Jean-Luc Mélenchon
+Est-ce qu'un candidat veut qu'on se passe du nucléaire ?,,Sortir du nucléaire|Planifier le passage,Jean-Luc Mélenchon
 Quel candidat veut miser uniquement sur le solaire et le vent ?,,Planifier le passage,Jean-Luc Mélenchon
-Que propose Le Pen pour faire baisser la facture d'électricité ?,Le Pen,relancer le nucléaire|produits énergétiques,Marine Le Pen
-"Le plein d'essence coûte trop cher, qui veut agir ?",,produits énergétiques,Marine Le Pen
-À quel âge Macron veut-il qu'on parte à la retraite ?,Macron,65 ans,Emmanuel Macron
+Que propose Le Pen pour faire baisser la facture d'électricité ?,Le Pen,relancer le nucléaire|pour les carburants,Marine Le Pen
+"Le plein d'essence coûte trop cher, qui veut agir ?",,pour les carburants|Appliquer aux Ultramarins,Marine Le Pen
+À quel âge Macron veut-il qu'on parte à la retraite ?,Macron,65 ans|carrières longues,Emmanuel Macron
 Qui veut revenir à la retraite à 60 ans ?,,retraite à 60 ans,Jean-Luc Mélenchon
 Les allocataires du RSA peuvent-ils cotiser pour leur retraite ?,,revenu de solidarité active,Jean-Luc Mélenchon
-"Les péages d'autoroute sont trop chers, qu'est-ce qui est proposé ?",,concessions autoroutières,Marine Le Pen
-Que prévoit Macron pour le niveau en maths des élèves ?,Macron,heures de français et de mathématiques,Emmanuel Macron
+"Les péages d'autoroute sont trop chers, qu'est-ce qui est proposé ?",,concessions autoroutières|Renationaliser les autoroutes|Revenir sur les privatisations,Marine Le Pen|Jean-Luc Mélenchon
+Que prévoit Macron pour le niveau en maths des élèves ?,Macron,heures de français et de mathématiques|tronc commun du lycée,Emmanuel Macron
 Comment lutter contre le harcèlement à l'école ?,,harcèlement scolaire,Emmanuel Macron
-Quels candidats veulent taxer davantage les riches ?,,TVA grand luxe|exit tax,Jean-Luc Mélenchon
+Quels candidats veulent taxer davantage les riches ?,,(ISF)|flat tax|14 tranches contre 5|CSG progressive|hauts patrimoines|TVA grand luxe|exit tax|transactions financières|hautes transactions immobilières|par un Impôt sur la fortune financière,Jean-Luc Mélenchon|Marine Le Pen
 Est-ce qu'on pourra transformer ses jours de congés en argent ?,,compte épargne-temps,Emmanuel Macron
 Que pense Le Pen des accords commerciaux avec le Canada ?,Le Pen,CETA,Marine Le Pen
-Comment savoir d'où vient ce qu'on mange ?,,traçabilité intégrale,Marine Le Pen
-Que proposent les candidats pour les élèves handicapés ?,,école inclusive|accompagnement des élèves,Emmanuel Macron
-"Les panneaux solaires dans les champs, qui est contre ?",,terres agricoles,Marine Le Pen
+Comment savoir d'où vient ce qu'on mange ?,,traçabilité intégrale|mention de l'origine|origine et les procédés,Marine Le Pen
+Que proposent les candidats pour les élèves handicapés ?,,accompagnement des élèves en situation|accompagnement du handicap|(AESH)|école inclusive,Jean-Luc Mélenchon|Emmanuel Macron
+"Les panneaux solaires dans les champs, qui est contre ?",,éoliens et solaires au sol|Prononcer un moratoire,Marine Le Pen
 Quelle est la recette de la tarte tatin ?,,,
 Qui a gagné la Coupe du monde 2018 ?,,,
+Qui a gagné la présidentielle de 2017 ?,,,
+Quel est le salaire d'un député ?,,,
+Que pense Zemmour de l'immigration ?,,,
+Comment voter par procuration ?,,,
+Quel temps fera-t-il demain à Bordeaux ?,,,

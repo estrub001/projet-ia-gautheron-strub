@@ -21,7 +21,10 @@ RACINE = Path(__file__).resolve().parents[2]
 CHEMIN_CSV = RACINE / "data" / "mesures_programmes_2022.csv"
 CHEMIN_CHROMA = RACINE / "chroma_db"
 NOM_COLLECTION = "mesures"
-MODELE = "intfloat/multilingual-e5-base"
+MODELE = "BAAI/bge-m3"
+PREFIXE_PASSAGE = ""  # "passage: " pour e5, rien pour bge-m3
+PREFIXE_QUESTION = ""  # "query: " pour e5, rien pour bge-m3
+#MODELE = "intfloat/multilingual-e5-base"
 
 # Noms de colonnes du CSV -> noms simples, sans accents ni espaces
 COLONNES = {
@@ -74,9 +77,8 @@ def construire_texte(ligne: pd.Series) -> str:
     theme = ligne["theme"]
     if ligne["theme_secondaire"]:
         theme += f", {ligne['theme_secondaire']}"
-    return f"{theme}. {ligne['mesure']}"
-    # Versions testées :
-    # return ligne["mesure"]
+    return ligne["mesure"]
+    #return f"{theme}. {ligne['mesure']}"
     # return f"Candidat : {ligne['candidat']}. Thème : {theme}. Mesure : {ligne['mesure']}"
 
 
@@ -122,8 +124,7 @@ def indexer(df: pd.DataFrame, taille_paquet: int = 500) -> None:
     collection = get_collection()
 
     print(f"Calcul des embeddings pour {len(df)} mesures...")
-    vecteurs = embedder(df["texte_embed"].tolist(), prefixe="passage: ")
-
+    vecteurs = embedder(df["texte_embed"].tolist(), prefixe=PREFIXE_PASSAGE)
     metadonnees = df[
         ["candidat", "theme", "theme_secondaire", "type_source", "source", "date"]
     ].to_dict(orient="records")
@@ -159,8 +160,7 @@ def rechercher(question: str, candidat: str | None = None, n: int = 5) -> list[d
         filtre = {"candidat": NOMS_CANDIDATS.get(candidat, candidat)}
 
     resultats = collection.query(
-        query_embeddings=embedder([question], prefixe="query: "),
-        n_results=n,
+        query_embeddings=embedder([question], prefixe=PREFIXE_QUESTION),        n_results=n,
         where=filtre,
     )
 
