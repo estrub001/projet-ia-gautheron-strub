@@ -19,6 +19,8 @@ Règles :
 - Si les mesures ne permettent pas de répondre, dis-le simplement.
 - Présente les propositions candidat par candidat, sans donner ton avis
   et sans juger quelle proposition est la meilleure.
+- Format à respecter pour chaque candidat : une ligne "#### Nom du candidat",
+  puis ses mesures sous forme de liste à puces ("- ...").
 - Pour chaque mesure citée, indique sa source entre crochets, ex. [projet-lecologie.pdf].
 - Réponds en français, de façon claire et concise."""
 
@@ -77,11 +79,22 @@ def generer_reponse(question: str, mesures: list[dict]) -> str:
     return reponse.choices[0].message.content
 
 
+def grouper_par_candidat(mesures: list[dict]) -> dict[str, list[dict]]:
+    """Regroupe les mesures par candidat, en gardant l'ordre de pertinence."""
+    groupes = {}
+    for m in mesures:
+        groupes.setdefault(m["candidat"], []).append(m)
+    return groupes
+
+
 def reponse_factice(mesures: list[dict]) -> str:
     """Fausse réponse au même format que celle du modèle, pour tester l'interface."""
-    lignes = ["*(Réponse factice : le modèle n'est pas encore branché.)*", ""]
-    for m in mesures:
-        lignes.append(f"- **{m['candidat']}** : {m['mesure']} [{m['source']}]")
+    lignes = ["*(Réponse factice : le modèle n'est pas encore branché.)*"]
+    for candidat, mesures_candidat in grouper_par_candidat(mesures).items():
+        # "####" = titre markdown : en gras et un peu plus gros que le texte
+        lignes += ["", f"#### {candidat}"]
+        for m in mesures_candidat:
+            lignes.append(f"- {m['mesure']} [{m['source']}]")
     return "\n".join(lignes)
 
 
