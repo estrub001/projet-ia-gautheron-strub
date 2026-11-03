@@ -4,8 +4,9 @@
 2. Assemblage du texte à vectoriser
 3. Embeddings en local avec sentence-transformers
 4. Stockage dans ChromaDB
-5. Fonction rechercher() : équilibre entre candidats + seuil de score
-6. Tests dans le terminal
+5. Reranker : relit question et mesure ensemble pour reclasser les résultats
+6. Fonction rechercher() : équilibre entre candidats + seuil de score
+7. Tests dans le terminal
 """
 
 import math
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import chromadb
 import pandas as pd
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
 from my_package.glossaire import enrichir
 
@@ -33,6 +34,19 @@ PREFIXE_QUESTION = ""  # "query: " pour e5, rien pour bge-m3
 # En dessous de ce score, une mesure est jugée hors sujet (valable pour bge-m3 :
 # à recalibrer si on change de modèle, chaque modèle a sa propre échelle)
 SCORE_MIN = 0.45
+
+# --- Reranker ---
+MODELE_RERANKER = "BAAI/bge-reranker-v2-m3"
+RERANKER_ACTIF = True  # False = recherche par embeddings seule (version précédente)
+N_AVANT_RERANK = 10  # mesures récupérées par candidat avant reclassement
+# Filet plus large que SCORE_MIN : on laisse passer plus de mesures,
+# c'est le reranker qui fait le tri ensuite
+SCORE_MIN_AVANT_RERANK = 0.35
+# Seuil sur le score du reranker (entre 0 et 1). None = pas de coupure.
+# À calibrer avec test/evaluer.py (pire bonne réponse / meilleur hors sujet)
+SEUIL_RERANK = None
+# True = le reranker relit la mesure enrichie par le glossaire (à tester)
+RERANK_AVEC_GLOSSAIRE = False
 
 # Noms de colonnes du CSV -> noms simples, sans accents ni espaces
 COLONNES = {
@@ -160,7 +174,34 @@ def get_candidats() -> tuple[str, ...]:
 
 
 # ---------------------------------------------------------------------------
-# 5. Recherche
+# 5. Reranker (chargé une seule fois)
+# ---------------------------------------------------------------------------
+@lru_cache(maxsize=1)
+def get_reranker() -> CrossEncoder:
+    return CrossEncoder(MODELE_RERANKER, max_length=512)
+
+
+def reclasser(question: str, mesures: list[dict]) -> list[dict]:
+    """Donne à chaque mesure un score du reranker, qui lit question et mesure ensemble.
+
+    Le score des embeddings est conservé dans "score_embedding" pour comparer,
+    et "score" devient le score du reranker (entre 0 et 1, 1 = très pertinent).
+    """
+    if not mesures:
+        return []
+    paires = [
+        (question, enrichir(m["mesure"]) if RERANK_AVEC_GLOSSAIRE else m["mesure"])
+        for m in mesures
+    ]
+    scores = get_reranker().predict(paires, batch_size=16, show_progress_bar=False)
+    for m, s in zip(mesures, scores):
+        m["score_embedding"] = m["score"]
+        m["score"] = round(float(s), 3)
+    return mesures
+
+
+# ---------------------------------------------------------------------------
+# 6. Recherche
 # ---------------------------------------------------------------------------
 def _interroger(collection, vecteur, n: int, filtre: dict | None) -> list[dict]:
     """Une requête ChromaDB, mise au format de sortie."""
@@ -186,26 +227,39 @@ def _interroger(collection, vecteur, n: int, filtre: dict | None) -> list[dict]:
     return mesures
 
 
+def _meilleures(mesures: list[dict], n: int) -> list[dict]:
+    return sorted(mesures, key=lambda m: -m["score"])[:n]
+
+
 def rechercher(
     question: str,
     candidat: str | None = None,
     n: int = 9,
     equilibrer: bool = True,
     score_min: float | None = SCORE_MIN,
+    reranker: bool = RERANKER_ACTIF,
+    seuil_rerank: float | None = SEUIL_RERANK,
 ) -> list[dict]:
-    """Renvoie les mesures les plus proches de la question, de la plus proche à la moins proche.
+    """Renvoie les mesures les plus pertinentes, de la plus pertinente à la moins pertinente.
 
     - candidat donné : les n meilleures mesures de ce candidat.
     - sans candidat et equilibrer=True : les meilleures mesures de CHAQUE candidat
       (n réparti entre eux, arrondi au-dessus : n=9 et 3 candidats -> 3 chacun),
       pour qu'aucun candidat ne disparaisse parce que son programme est plus court.
     - sans candidat et equilibrer=False : les n meilleures toutes confondues.
-    - score_min : les mesures en dessous sont retirées (None = pas de seuil).
-      La liste peut donc être vide : la question est alors hors sujet.
+
+    Sans reranker : score = score des embeddings, filtré par score_min.
+    Avec reranker : on récupère d'abord plus de mesures (N_AVANT_RERANK par candidat,
+      filet SCORE_MIN_AVANT_RERANK), le reranker les reclasse, puis on garde les
+      meilleures. score = score du reranker, filtré par seuil_rerank ;
+      l'ancien score reste dans "score_embedding".
+
+    La liste peut être vide : la question est alors hors sujet (décidé avec le score
+    des embeddings : aucune mesure ne dépasse score_min, même avec le reranker).
 
     Format de sortie : liste de dicts
     {"mesure", "candidat", "theme", "theme_secondaire", "type_source",
-     "source", "date", "score"}
+     "source", "date", "score"} (+ "score_embedding" avec le reranker)
     """
     collection = get_collection()
     if collection.count() == 0:
@@ -213,45 +267,83 @@ def rechercher(
         collection = get_collection()  # la collection a été recréée par indexer()
 
     vecteur = embedder([question], prefixe=PREFIXE_QUESTION)[0]
-    
+
+    # Groupes de recherche : un par candidat (équilibre), ou un seul
     if candidat:
-        nom = NOMS_CANDIDATS.get(candidat, candidat)
-        mesures = _interroger(collection, vecteur, n, {"candidat": nom})
+        groupes = [{"candidat": NOMS_CANDIDATS.get(candidat, candidat)}]
+        n_par_groupe = n
     elif equilibrer:
         candidats = get_candidats()
-        par_candidat = math.ceil(n / len(candidats))
-        mesures = []
-        for nom in candidats:
-            mesures += _interroger(collection, vecteur, par_candidat, {"candidat": nom})
+        groupes = [{"candidat": nom} for nom in candidats]
+        n_par_groupe = math.ceil(n / len(candidats))
     else:
-        mesures = _interroger(collection, vecteur, n, None)
+        groupes = [None]
+        n_par_groupe = n
 
-    if score_min is not None:
-        mesures = [m for m in mesures if m["score"] >= score_min]
+    # 1. Récupération par embeddings (plus large si on reclasse ensuite)
+    if reranker:
+        n_recup = max(n_par_groupe, N_AVANT_RERANK * (1 if groupes[0] else len(get_candidats())))
+        seuil_embedding = SCORE_MIN_AVANT_RERANK
+    else:
+        n_recup = n_par_groupe
+        seuil_embedding = score_min
 
-    return sorted(mesures, key=lambda m: -m["score"])
+    par_groupe = []
+    for filtre in groupes:
+        mesures = _interroger(collection, vecteur, n_recup, filtre)
+        if seuil_embedding is not None:
+            mesures = [m for m in mesures if m["score"] >= seuil_embedding]
+        par_groupe.append(mesures)
+
+    # Hors sujet : on décide avec les embeddings (seuil SCORE_MIN), le reranker
+    # ne sert qu'à reclasser. Si aucune mesure n'atteint le seuil, liste vide.
+    meilleur_score = max((m["score"] for mesures in par_groupe for m in mesures), default=0)
+    if reranker and score_min is not None and meilleur_score < score_min:
+        return []
+
+    # 2. Reclassement : un seul appel au reranker pour toutes les mesures (plus rapide)
+    if reranker:
+        reclasser(question, [m for mesures in par_groupe for m in mesures])
+        if seuil_rerank is not None:
+            par_groupe = [
+                [m for m in mesures if m["score"] >= seuil_rerank]
+                for mesures in par_groupe
+            ]
+
+    # 3. Les meilleures de chaque groupe
+    resultats = []
+    for mesures in par_groupe:
+        resultats += _meilleures(mesures, n_par_groupe)
+
+    return sorted(resultats, key=lambda m: -m["score"])
 
 
 # ---------------------------------------------------------------------------
-# 6. Tests rapides : uv run python -m my_package.recherche [--reindexer]
+# 7. Tests rapides : uv run python -m my_package.recherche [--reindexer] [--sans-reranker]
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     if "--reindexer" in sys.argv or get_collection().count() == 0:
         indexer(charger_mesures())
+
+    avec_reranker = "--sans-reranker" not in sys.argv
 
     questions = [
         ("Que propose-t-on sur les éoliennes ?", None),
         ("Quel âge de départ à la retraite ?", None),
         ("Que veut faire Macron pour l'école ?", "Macron"),
         ("Quelles mesures pour baisser le prix de l'essence ?", "Le Pen"),
+        ("Quels candidats veulent taxer davantage les riches ?", None),
         ("Quelle est la recette de la tarte tatin ?", None),  # hors sujet
     ]
 
     for question, candidat in questions:
         filtre = f" [filtre : {candidat}]" if candidat else ""
         print(f"\n=== {question}{filtre}")
-        resultats = rechercher(question, candidat=candidat)
+        resultats = rechercher(question, candidat=candidat, reranker=avec_reranker)
         if not resultats:
             print("  (aucune mesure au-dessus du seuil : hors sujet)")
         for m in resultats:
-            print(f"  ({m['score']}) {m['candidat']} | {m['theme']} | {m['mesure'][:110]}")
+            embed = f" / emb {m['score_embedding']}" if "score_embedding" in m else ""
+            print(
+                f"  ({m['score']}{embed}) {m['candidat']} | {m['theme']} | {m['mesure'][:100]}"
+            )
