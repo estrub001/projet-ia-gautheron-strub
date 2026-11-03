@@ -13,7 +13,8 @@ CANDIDATS = ["Emmanuel Macron", "Jean-Luc Mélenchon", "Marine Le Pen"]
 MESURES_PAR_CANDIDAT = 2  # maximum de mesures affichées par candidat
 
 # Source écrite entre crochets à la fin d'une ligne, ex. "... [projet-lecologie.pdf]"
-SOURCE_EN_FIN_DE_LIGNE = re.compile(r" \[([^\]]+)\]$", re.MULTILINE)
+# (le point final éventuel après le crochet est toléré, le modèle en met parfois un)
+SOURCE_EN_FIN_DE_LIGNE = re.compile(r" ?\[([^\]]+)\]\.?$", re.MULTILINE)
 
 
 def rechercher_candidats(question: str, candidats: list[str]) -> list[dict]:

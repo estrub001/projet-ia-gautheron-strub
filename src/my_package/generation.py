@@ -1,14 +1,17 @@
 """Génération de la réponse à partir des mesures trouvées par rechercher()."""
 
 import os
+import time
 
-from mistralai.client import Mistral
+import requests
 
-MODELE = "mistral-small-latest"
+# Service d'inférence ILaaS (API compatible OpenAI), clé fournie par l'école
+URL_API = "https://llm.ilaas.fr/v1"
+MODELE = "mistral-small-4-119b"  # liste des modèles disponibles : GET {URL_API}/models
+NB_ESSAIS = 3  # le serveur coupe parfois ou répond "occupé" : on réessaie
 
-# VERSION TEMPORAIRE : True = fausse réponse sans appeler Mistral (pas besoin de clé).
-# Repasser à False quand on aura un accès à l'API.
-MODE_FACTICE = True
+# True = fausse réponse sans appeler le modèle (pratique pour tester l'interface hors ligne)
+MODE_FACTICE = False
 
 # Consignes données au modèle : il ne doit utiliser QUE les mesures fournies
 CONSIGNES = """Tu es un assistant neutre qui aide les citoyens à comprendre
@@ -21,7 +24,8 @@ Règles :
   et sans juger quelle proposition est la meilleure.
 - Format à respecter pour chaque candidat : une ligne "#### Nom du candidat",
   puis ses mesures sous forme de liste à puces ("- ...").
-- Pour chaque mesure citée, indique sa source entre crochets, ex. [projet-lecologie.pdf].
+- Termine chaque puce par la "Source" de la mesure entre crochets, recopiée telle quelle,
+  sans point après, ex. "- Baisser la TVA sur l'énergie. [projet-lecologie.pdf]".
 - Réponds en français, de façon claire et concise."""
 
 MESSAGE_AUCUNE_MESURE = (
@@ -42,7 +46,8 @@ def formater_mesures(mesures: list[dict]) -> str:
             f"{i}. Candidat : {m['candidat']}\n"
             f"   Thème : {theme}\n"
             f"   Mesure : {m['mesure']}\n"
-            f"   Source : {m['source']} ({m['type_source']}, {m['date']})"
+            f"   Source : {m['source']}\n"
+            f"   Type de source : {m['type_source']} ({m['date']})"
         )
     return "\n\n".join(lignes)
 
@@ -61,22 +66,47 @@ def generer_reponse(question: str, mesures: list[dict]) -> str:
     if MODE_FACTICE:
         return reponse_factice(mesures)
 
-    client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
-
     message_utilisateur = (
         f"Question du citoyen : {question}\n\n"
         f"Mesures des programmes :\n\n{formater_mesures(mesures)}"
     )
-
-    reponse = client.chat.complete(
-        model=MODELE,
-        messages=[
+    return appeler_modele(
+        [
             {"role": "system", "content": CONSIGNES},
             {"role": "user", "content": message_utilisateur},
-        ],
-        temperature=0.2,  # bas = réponses plus fidèles aux mesures
+        ]
     )
-    return reponse.choices[0].message.content
+
+
+def appeler_modele(messages: list[dict]) -> str:
+    """Envoie les messages au modèle ILaaS et renvoie le texte de sa réponse."""
+    entetes = {
+        # La clé est lue dans une variable d'environnement, jamais écrite dans le code
+        "Authorization": f"Bearer {os.environ['ILAAS_API_KEY']}",
+        "Content-Type": "application/json",
+    }
+    donnees = {
+        "model": MODELE,
+        "messages": messages,
+        "temperature": 0.2,  # bas = réponses plus fidèles aux mesures
+        "stream": False,
+    }
+
+    for essai in range(1, NB_ESSAIS + 1):
+        try:
+            reponse = requests.post(
+                f"{URL_API}/chat/completions", headers=entetes, json=donnees, timeout=60
+            )
+            # 503 = modèle occupé : on réessaie un peu plus tard
+            if reponse.status_code != 503:
+                reponse.raise_for_status()  # erreur claire si 401 (clé), 404 (modèle)...
+                return reponse.json()["choices"][0]["message"]["content"]
+        except requests.ConnectionError:
+            if essai == NB_ESSAIS:
+                raise
+        time.sleep(2 * essai)
+
+    raise RuntimeError(f"Le modèle {MODELE} est occupé, réessayez dans un instant.")
 
 
 def grouper_par_candidat(mesures: list[dict]) -> dict[str, list[dict]]:
@@ -89,7 +119,7 @@ def grouper_par_candidat(mesures: list[dict]) -> dict[str, list[dict]]:
 
 def reponse_factice(mesures: list[dict]) -> str:
     """Fausse réponse au même format que celle du modèle, pour tester l'interface."""
-    lignes = ["*(Réponse factice : le modèle n'est pas encore branché.)*"]
+    lignes = ["*(Réponse factice : le modèle n'est pas appelé.)*"]
     for candidat, mesures_candidat in grouper_par_candidat(mesures).items():
         # "####" = titre markdown : en gras et un peu plus gros que le texte
         lignes += ["", f"#### {candidat}"]
