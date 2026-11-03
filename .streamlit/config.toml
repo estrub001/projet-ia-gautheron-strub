@@ -1,0 +1,4 @@
+[server]
+# Désactive la surveillance des fichiers : sinon Streamlit inspecte tous les
+# sous-modules de transformers et affiche des centaines d'erreurs "torchvision".
+fileWatcherType = "none"
