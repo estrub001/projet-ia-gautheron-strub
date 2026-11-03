@@ -6,6 +6,7 @@ Lancement depuis la racine du projet :
     uv run python test/evaluer.py --sans-equilibre   (les N meilleures toutes confondues)
     uv run python test/evaluer.py --sans-seuil       (pas de score minimum)
     uv run python test/evaluer.py --n 6              (nombre de mesures demandées)
+    uv run python test/evaluer.py --fichier questions_validation.csv   (autre jeu de questions)
 Les options se combinent, par exemple : --sans-equilibre --sans-seuil = l'ancienne version.
 
 Format de questions.csv :
@@ -31,7 +32,9 @@ import pandas as pd
 
 from my_package.recherche import SCORE_MIN, rechercher
 
-CHEMIN_QUESTIONS = Path(__file__).resolve().parent / "questions.csv"
+DOSSIER_TEST = Path(__file__).resolve().parent
+FICHIER = sys.argv[sys.argv.index("--fichier") + 1] if "--fichier" in sys.argv else "questions.csv"
+CHEMIN_QUESTIONS = DOSSIER_TEST / FICHIER
 VERBEUX = "-v" in sys.argv
 EQUILIBRER = "--sans-equilibre" not in sys.argv
 SEUIL = None if "--sans-seuil" in sys.argv else SCORE_MIN
