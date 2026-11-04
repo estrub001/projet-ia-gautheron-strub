@@ -15,7 +15,10 @@ import requests
 
 # Service d'inférence ILaaS (API compatible OpenAI), clé fournie par l'école
 URL_API = "https://llm.ilaas.fr/v1"
-MODELE = "mistral-small-4-119b"  # liste des modèles disponibles : GET {URL_API}/models
+# Choisi après comparaison sur les questions de test et de validation : même qualité que
+# gemma-4-31b, aucun faux "À l'inverse" (contrairement à mistral-small-4-119b), et rapide.
+# Liste des modèles disponibles : GET {URL_API}/models
+MODELE = "qwen-3.6-35b-instruct"
 NB_ESSAIS = 4  # le serveur coupe parfois ou répond "occupé" : on réessaie
 
 # True = fausse réponse sans appeler le modèle (pratique pour tester l'interface hors ligne)
