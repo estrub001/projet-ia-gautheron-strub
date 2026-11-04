@@ -43,10 +43,12 @@ N_AVANT_RERANK = 10  # mesures récupérées par candidat avant reclassement
 # c'est le reranker qui fait le tri ensuite
 SCORE_MIN_AVANT_RERANK = 0.35
 # Seuil sur le score du reranker (entre 0 et 1). None = pas de coupure.
-# À calibrer avec test/evaluer.py (pire bonne réponse / meilleur hors sujet)
+# Testé à 0.001 : coupe 71 % du bruit sur questions.csv, mais la couverture des
+# candidats tombe de 95 % à 73 % sur la validation -> désactivé
 SEUIL_RERANK = None
-# True = le reranker relit la mesure enrichie par le glossaire (à tester)
-RERANK_AVEC_GLOSSAIRE = False
+# True = le reranker relit la mesure enrichie par le glossaire
+# (questions.csv : MRR 0.82 -> 0.91, rappel inchangé)
+RERANK_AVEC_GLOSSAIRE = True
 
 # Noms de colonnes du CSV -> noms simples, sans accents ni espaces
 COLONNES = {
@@ -196,7 +198,9 @@ def reclasser(question: str, mesures: list[dict]) -> list[dict]:
     scores = get_reranker().predict(paires, batch_size=16, show_progress_bar=False)
     for m, s in zip(mesures, scores):
         m["score_embedding"] = m["score"]
-        m["score"] = round(float(s), 3)
+        # 5 décimales : les scores du reranker sont souvent très proches de 0
+        # (ex. 0.00112), 3 décimales effaceraient les différences
+        m["score"] = round(float(s), 5)
     return mesures
 
 

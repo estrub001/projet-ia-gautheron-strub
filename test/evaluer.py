@@ -6,6 +6,8 @@ Lancement depuis la racine du projet :
     uv run python test/evaluer.py --sans-equilibre   (les N meilleures toutes confondues)
     uv run python test/evaluer.py --sans-seuil       (pas de score minimum)
     uv run python test/evaluer.py --n 6              (nombre de mesures demandées)
+    uv run python test/evaluer.py --sans-reranker    (embeddings seuls, sans reclassement)
+    uv run python test/evaluer.py --seuil 0.35       (autre score minimum)
     uv run python test/evaluer.py --fichier questions_validation.csv   (autre jeu de questions)
 Les options se combinent, par exemple : --sans-equilibre --sans-seuil = l'ancienne version.
 
@@ -38,7 +40,10 @@ CHEMIN_QUESTIONS = DOSSIER_TEST / FICHIER
 VERBEUX = "-v" in sys.argv
 EQUILIBRER = "--sans-equilibre" not in sys.argv
 SEUIL = None if "--sans-seuil" in sys.argv else SCORE_MIN
+if "--seuil" in sys.argv:
+    SEUIL = float(sys.argv[sys.argv.index("--seuil") + 1])
 N = int(sys.argv[sys.argv.index("--n") + 1]) if "--n" in sys.argv else 9
+RERANKER = "--sans-reranker" not in sys.argv
 
 
 def decouper(valeur: str) -> list[str]:
@@ -66,7 +71,8 @@ def main() -> None:
 
     print(
         f"Réglages : n={N}, équilibre par candidat={'oui' if EQUILIBRER else 'non'}, "
-        f"seuil={SEUIL if SEUIL is not None else 'aucun'}"
+        f"seuil={SEUIL if SEUIL is not None else 'aucun'}, "
+        f"reranker={'oui' if RERANKER else 'non'}"
     )
 
     nb_attendues, trouves, rejets_a_tort = 0, 0, 0
@@ -82,12 +88,16 @@ def main() -> None:
         candidats = decouper(q["candidats_attendus"])
 
         resultats = rechercher(
-            question, candidat=candidat, n=N, equilibrer=EQUILIBRER, score_min=SEUIL
+            question, candidat=candidat, n=N, equilibrer=EQUILIBRER, score_min=SEUIL,
+            reranker=RERANKER,
         )
 
         # --- Question hors sujet : rejetée ou non, et meilleur score brut (sans seuil)
         if not fragments:
-            bruts = rechercher(question, candidat=candidat, n=N, equilibrer=EQUILIBRER, score_min=None)
+            bruts = rechercher(
+                question, candidat=candidat, n=N, equilibrer=EQUILIBRER,
+                score_min=None, reranker=RERANKER,
+            )
             meilleur = bruts[0]["score"] if bruts else 0
             rejetee = not resultats
             hors_sujet.append((question, meilleur, rejetee))
